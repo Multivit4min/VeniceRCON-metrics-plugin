@@ -46,7 +46,7 @@ module.exports = async ({  battlefield, router }) => {
   })
 
   /** @type {[string, string]} */
-  let currentGameLabels
+  let currentGameLabels = ["", ""]
 
   /**
    * updates current game infos
