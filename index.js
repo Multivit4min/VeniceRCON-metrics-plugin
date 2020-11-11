@@ -9,33 +9,28 @@ module.exports = async ({  battlefield, router }) => {
   const defaultLabels = { serverName: serverinfo.name }
   client.register.setDefaultLabels(defaultLabels)
 
-  /**
-   * @type {Record<string, (() => void)[]>} player data
-   */
-  const players = {}
-
   const playerScores = new client.Gauge({
     name: "vu_player_score",
     help: "scores of all players online",
-    labelNames: ["name", "team"]
+    labelNames: ["name"]
   })
 
   const playerKills = new client.Gauge({
     name: "vu_player_kills",
     help: "kills of all players online",
-    labelNames: ["name", "team"]
+    labelNames: ["name"]
   })
 
   const playerDeaths = new client.Gauge({
     name: "vu_player_deaths",
     help: "deaths of all players online",
-    labelNames: ["name", "team"]
+    labelNames: ["name"]
   })
 
   const playerPing = new client.Gauge({
     name: "vu_player_ping",
     help: "ping of all players online",
-    labelNames: ["name", "team"]
+    labelNames: ["name"]
   })
 
   const kills = new client.Gauge({
@@ -50,43 +45,31 @@ module.exports = async ({  battlefield, router }) => {
     labelNames: ["map", "mode"]
   })
 
-  /** @type {any} */
-  let currentGame
-  /** @type {any} */
-  let end
+  /** @type {[string, string]} */
+  let currentGameLabels
 
   /**
    * updates current game infos
    * @param {import("vu-rcon").Battlefield.ServerInfo} [serverinfo]
    */
   const updateGame = async (serverinfo) => {
-    if (end) end()
     if (!serverinfo) serverinfo = await battlefield.serverInfo()
-    currentGame = game.labels(serverinfo.map, serverinfo.mode)
-    currentGame.set(serverinfo.slots)
-    end = currentGame.startTimer()
+    /** @type {[string, string]} */
+    const label = [serverinfo.map, serverinfo.mode]
+    if (currentGameLabels[0] !== label[0] || currentGameLabels[1] !== label[1]) {
+      game.remove(...currentGameLabels)
+      currentGameLabels = label
+    }
+    game.labels(...currentGameLabels).set(serverinfo.slots)
   }
 
   const updatePlayers = async () => {
-    const data = await battlefield.getPlayers()
-    data.forEach(player => {
-      const labels = [player.name, String(player.teamId)]
-      const scores = playerScores.labels(...labels)
-      scores.set(player.score)
-      const kills = playerKills.labels(...labels)
-      kills.set(player.kills)
-      const deaths = playerDeaths.labels(...labels)
-      deaths.set(player.deaths)
-      const ping = playerPing.labels(...labels)
-      ping.set(player.ping)
-      if (!players[player.guid]) {
-        players[player.guid] = [
-          scores.startTimer(),
-          kills.startTimer(),
-          deaths.startTimer(),
-          ping.startTimer()
-        ]
-      }
+    (await battlefield.getPlayers()).forEach(player => {
+      const labels = [player.name]
+      playerScores.labels(...labels).set(player.score)
+      playerKills.labels(...labels).set(player.kills)
+      playerDeaths.labels(...labels).set(player.deaths)
+      playerPing.labels(...labels).set(player.ping)
     })
   }
 
@@ -101,10 +84,12 @@ module.exports = async ({  battlefield, router }) => {
   })
 
   //remove player from server
-  battlefield.on("playerLeave", ev => {
-    const callbacks = players[ev.player.guid]
-    if (!Array.isArray(callbacks)) return
-    callbacks.forEach(cb => cb())
+  battlefield.on("playerLeave", ({ player }) => {
+    const labels = [player.name]
+    playerScores.remove(...labels)
+    playerKills.remove(...labels)
+    playerDeaths.remove(...labels)
+    playerPing.remove(...labels)
   })
 
   //register kill handler
@@ -113,18 +98,10 @@ module.exports = async ({  battlefield, router }) => {
   })
 
   //update current map
-  battlefield.on("levelLoaded", async () => updateGame())
-
+  battlefield.on("levelLoaded", () => updateGame())
   //get new slots after player join
-  battlefield.on("playerAuthenticated", async () => {
-    const { slots } = await battlefield.serverInfo()
-    currentGame.set(slots)
-  })
-
+  battlefield.on("playerAuthenticated", () => updateGame())
   //update slot count
-  battlefield.on("playerLeave", async () => {
-    const { slots } = await battlefield.serverInfo()
-    currentGame.set(slots)
-  })
+  battlefield.on("playerLeave", () => updateGame())
 
 }
