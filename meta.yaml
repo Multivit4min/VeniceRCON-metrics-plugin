@@ -1,0 +1,5 @@
+name: "Metrics Plugin"
+description: "collects metrics for prometheus"
+version: "1.0.0"
+backend: "BF3"
+entry: "index.js"
